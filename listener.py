@@ -1,6 +1,5 @@
 # listener.py
-import tkinter as tk
-from scapy.all import sniff
+from scapy.all import sniff,TCP
 from collections import defaultdict
 from time import time
 from datetime import datetime
@@ -8,7 +7,11 @@ from datetime import datetime
 # Initialize global structures for tracking attacks
 syn_packets = defaultdict(list)
 http_requests = defaultdict(list)
+PORT = 5123
 known_good_ips = {'8.8.8.8', '8.8.4.4'}  # Example DNS IPs
+
+with open("alerts.log", "a") as log_file:
+    log_file.write("=" * 25 + str(datetime.now()) + "=" * 25 + "\n")
 
 # Function to detect various attacks
 def detect_port_scan(packet):
@@ -20,19 +23,30 @@ def detect_ping_sweep(packet):
     return icmp_layer and icmp_layer.type == 8
 
 def detect_syn_flood(packet):
-    tcp_layer = packet.getlayer('TCP')
-    if tcp_layer and tcp_layer.flags == 'S':
-        src_ip = packet.getlayer('IP').src
-        current_time = time()
-        syn_packets[src_ip].append(current_time)
-        syn_packets[src_ip] = [t for t in syn_packets[src_ip] if current_time - t < 10]
-        return len(syn_packets[src_ip]) > 20
+    tcp_layer = packet.getlayer(TCP)
+    if tcp_layer:
+        # Debugging: Print TCP flags to see what flags are being captured
+        print(f"TCP Flags: {tcp_layer.flags}")
+
+        # Check if the SYN flag is set
+        if 'S' in tcp_layer.flags:  # Correct way to check if SYN flag is present
+            src_ip = packet.getlayer('IP').src
+            current_time = time()
+            syn_packets[src_ip].append(current_time)
+            syn_packets[src_ip] = [t for t in syn_packets[src_ip] if current_time - t < 10]
+            return len(syn_packets[src_ip]) > 20
     return False
+
+def log_alert(message):
+    with open("alerts.log", "a") as log_file:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_file.write(f"[{timestamp}] {message}\n")
 
 def detect_dns_spoof(packet):
     dns_layer = packet.getlayer('DNS')
     if dns_layer and dns_layer.ancount > 0:
-        for rr in dns_layer.ancount:
+        for i in range(dns_layer.ancount):
+            rr = dns_layer.an[i]
             if rr.type == 1 and rr.rdata not in known_good_ips:
                 return True
     return False
@@ -64,37 +78,11 @@ def packet_callback(packet):
         else:
             return
         log_alert(alert_msg)
-        update_alerts(alert_msg)
-
-def log_alert(message):
-    with open("alerts.log", "a") as log_file:
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        log_file.write(f"[{timestamp}] {message}\n")
-
-def update_alerts(message):
-    alerts_listbox.insert(tk.END, message)
-    alerts_listbox.yview(tk.END)
+        print(alert_msg)  # Print the alert to console
 
 def start_sniffing():
-    sniff(filter="tcp", prn=packet_callback, count=0)  # Set count=0 to run indefinitely
+    bpf_filter = f'tcp port {PORT}'
+    sniff(filter=bpf_filter, prn=packet_callback, count=0)  # Set count=0 to run indefinitely
 
-# GUI setup
-root = tk.Tk()
-root.title("IDS Listener")
-
-alerts_frame = tk.Frame(root)
-alerts_frame.pack(padx=10, pady=10)
-
-alerts_listbox = tk.Listbox(alerts_frame, width=80, height=20)
-alerts_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-scrollbar = tk.Scrollbar(alerts_frame, orient=tk.VERTICAL)
-scrollbar.config(command=alerts_listbox.yview)
-scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-alerts_listbox.config(yscrollcommand=scrollbar.set)
-
-start_button = tk.Button(root, text="Start Sniffing", command=start_sniffing)
-start_button.pack(pady=10)
-
-root.mainloop()
+if __name__ == "__main__":
+    start_sniffing()

