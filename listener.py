@@ -1,21 +1,24 @@
-# listener.py
-from scapy.all import sniff,TCP
+from scapy.all import sniff
+from scapy.layers.inet import IP,TCP
 from collections import defaultdict
 from time import time
 from datetime import datetime
+import threading
+import http_server
 
 # Initialize global structures for tracking attacks
 syn_packets = defaultdict(list)
 http_requests = defaultdict(list)
-PORT = 5123
+PORT = 5123  # HTTP port
 known_good_ips = {'8.8.8.8', '8.8.4.4'}  # Example DNS IPs
 
+# Create or overwrite the log file
 with open("alerts.log", "a") as log_file:
     log_file.write("=" * 25 + str(datetime.now()) + "=" * 25 + "\n")
 
 # Function to detect various attacks
 def detect_port_scan(packet):
-    tcp_layer = packet.getlayer('TCP')
+    tcp_layer = packet.getlayer(TCP)
     return tcp_layer and tcp_layer.flags == 'S'
 
 def detect_ping_sweep(packet):
@@ -25,12 +28,8 @@ def detect_ping_sweep(packet):
 def detect_syn_flood(packet):
     tcp_layer = packet.getlayer(TCP)
     if tcp_layer:
-        # Debugging: Print TCP flags to see what flags are being captured
-        print(f"TCP Flags: {tcp_layer.flags}")
-
-        # Check if the SYN flag is set
         if 'S' in tcp_layer.flags:  # Correct way to check if SYN flag is present
-            src_ip = packet.getlayer('IP').src
+            src_ip = packet.getlayer(IP).src
             current_time = time()
             syn_packets[src_ip].append(current_time)
             syn_packets[src_ip] = [t for t in syn_packets[src_ip] if current_time - t < 10]
@@ -52,37 +51,42 @@ def detect_dns_spoof(packet):
     return False
 
 def detect_http_flood(packet):
-    http_layer = packet.getlayer('HTTPRequest')
-    if http_layer:
-        src_ip = packet.getlayer('IP').src
-        current_time = time()
-        http_requests[src_ip].append(current_time)
-        http_requests[src_ip] = [t for t in http_requests[src_ip] if current_time - t < 10]
-        return len(http_requests[src_ip]) > 50
+    tcp_layer = packet.getlayer(TCP)
+    if tcp_layer and packet.haslayer(IP):
+        payload = bytes(packet[TCP].payload)
+        if b'GET ' in payload or b'POST ' in payload:
+            src_ip = packet[IP].src
+            current_time = time()
+            http_requests[src_ip].append(current_time)
+            http_requests[src_ip] = [t for t in http_requests[src_ip] if current_time - t < 10]
+            return len(http_requests[src_ip]) > 50
     return False
 
 def packet_callback(packet):
-    ip_layer = packet.getlayer('IP')
+    ip_layer = packet.getlayer(IP)
     if ip_layer:
         ip_src = ip_layer.src
-        if detect_port_scan(packet):
-            alert_msg = f"Port scan detected from {ip_src}"
-        elif detect_ping_sweep(packet):
-            alert_msg = f"Ping sweep detected from {ip_src}"
+        if detect_http_flood(packet):
+            alert_msg = f"HTTP flood detected from {ip_src}"
         elif detect_syn_flood(packet):
             alert_msg = f"SYN flood detected from {ip_src}"
+        elif detect_ping_sweep(packet):
+            alert_msg = f"Ping sweep detected from {ip_src}"
         elif detect_dns_spoof(packet):
             alert_msg = f"DNS spoofing detected from {ip_src}"
-        elif detect_http_flood(packet):
-            alert_msg = f"HTTP flood detected from {ip_src}"
+        elif detect_port_scan(packet):
+            alert_msg = f"Port scan detected from {ip_src}"
         else:
             return
         log_alert(alert_msg)
         print(alert_msg)  # Print the alert to console
 
 def start_sniffing():
-    bpf_filter = f'tcp port {PORT}'
+    bpf_filter = f'tcp port {PORT} or icmp'
     sniff(filter=bpf_filter, prn=packet_callback, count=0)  # Set count=0 to run indefinitely
 
 if __name__ == "__main__":
+    server_thread = threading.Thread(target=http_server.run,daemon=True)
+    server_thread.start()
+    print("Start sniffing and IDS")
     start_sniffing()

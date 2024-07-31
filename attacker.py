@@ -1,8 +1,8 @@
 # attacker.py
 import tkinter as tk
 import requests
-from scapy.all import IP, TCP, send, ICMP
-
+from scapy.all import send
+from scapy.layers.inet import IP,TCP,ICMP
 # Define the IP and port of the listener
 listener_ip = '192.168.0.14'
 listener_port = 5123
@@ -23,7 +23,11 @@ def send_ping_sweep():
 def send_http_flood():
     url = f"http://{listener_ip}:{listener_port}/"
     for _ in range(100):
-        requests.get(url)
+        try:
+            requests.get(url)
+        except requests.exceptions.RequestException:
+            print("cant send http req (http server close)")
+            break
 
 def attack_callback(attack_type):
     if attack_type == "SYN Flood":
