@@ -6,10 +6,10 @@ from datetime import datetime
 import threading
 import http_server
 
-# Initialize global structures for tracking attacks
+
 syn_packets = defaultdict(list)
 http_requests = defaultdict(list)
-PORT = 5123  # HTTP port
+PORT = 5123
 known_good_ips = {'8.8.8.8', '8.8.4.4'}  # Example DNS IPs
 
 # Create or overwrite the log file
@@ -28,7 +28,7 @@ def detect_ping_sweep(packet):
 def detect_syn_flood(packet):
     tcp_layer = packet.getlayer(TCP)
     if tcp_layer:
-        if 'S' in tcp_layer.flags:  # Correct way to check if SYN flag is present
+        if 'S' in tcp_layer.flags:
             src_ip = packet.getlayer(IP).src
             current_time = time()
             syn_packets[src_ip].append(current_time)

